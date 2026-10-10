@@ -1,13 +1,12 @@
-"""Four-component scoring with auditable normalization.
+"""Four-component weighted binary profile, exactly as defined on slide 9.
 
-IMPORTANT: these newly operationalized scores are not interchangeable with
-historical score_objects/score_norms/score_meaning/score_system in the
-existing processed_responses.csv; that file has no underlying raw texts.
+S_k = sum_i(w_ik*x_i) / sum_i(w_ik), x_i = 1 when the term
+or its approved variant occurs at least once, 0 otherwise.
+Scores are independent, between 0 and 1, and may overlap.
 """
 from __future__ import annotations
 from collections import defaultdict
 from .lexicon_matching import match_lexicon
-from .preprocessing import lemmas
 
 COMPONENT_NAMES = {
     'Наследие и объекты': 'score_objects',
@@ -17,29 +16,31 @@ COMPONENT_NAMES = {
 }
 
 def score_components(text: str, rows: list[dict], index: dict | None = None,
-                     *, scale: float = 100.0) -> tuple[dict, list[dict]]:
-    """Weighted matches per `scale` tokens (unbounded; usually per 100 words).
-
-    Separate component scores can overlap. Longest-per-component matching
-    avoids double counting nested expressions inside one component. This is
-    NOT a probability, a fraction of the dictionary, or a 0..1 metric.
-    """
+                     *, scale: float = 1.0) -> tuple[dict, list[dict]]:
+    if scale != 1.0:
+        raise ValueError('Slide 9 uses a normalized 0..1 score; scale must be 1.')
     hits = match_lexicon(text, rows, index)
-    totals = defaultdict(float)
-    for h in hits:
-        totals[h['component']] += h['weight']
-    size = len(lemmas(text))
-    scores = {field: round(scale * totals[name] / size, 6) if size else 0.0
-              for name, field in COMPONENT_NAMES.items()}
+    present = {h['row_id'] for h in hits}
+    denominator = defaultdict(float)
+    numerator = defaultdict(float)
+    for i, row in enumerate(rows):
+        category = row['компонент']
+        weight = float(row.get('вес_черновой') or 1)
+        if weight < 0:
+            raise ValueError('Weights must be nonnegative')
+        denominator[category] += weight
+        if i in present:
+            numerator[category] += weight
+    scores = {
+        field: round(numerator[name] / denominator[name], 6)
+        if denominator[name] else 0.0
+        for name, field in COMPONENT_NAMES.items()
+    }
     return scores, hits
 
 def score_components_relative(text: str, rows: list[dict], index: dict | None = None) -> dict:
-    """Optional relative profile: each component's share of total weighted hits.
-
-    Values sum to 1 when any matches exist; 0 otherwise. Relative profiles
-    obscure absolute coverage, so use alongside raw density scores.
-    """
+    """Optional diagnostics, NOT one of the presentation's scores."""
     scores, _ = score_components(text, rows, index)
     total = sum(scores.values())
-    return {k + '_relative': round(v/total, 6) if total else 0.0
+    return {k + '_relative': round(v / total, 6) if total else 0.0
             for k, v in scores.items()}

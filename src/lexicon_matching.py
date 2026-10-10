@@ -31,15 +31,8 @@ def match_lexicon(text: str, rows: list[dict], index: dict | None=None) -> list[
                              'term':rows[i]['термин'],'matched_as':term,
                              'start':start,'end':start+n,
                              'weight':float(rows[i].get('вес_черновой') or 1)})
-    # Prefer longest match per component for overlapping spans; do not suppress
-    # matches in *different* components because the model allows overlap.
-    selected=[]
-    for comp in {h['component'] for h in hits}:
-        occupied=set()
-        for h in sorted((x for x in hits if x['component']==comp),
-                        key=lambda x:(-(x['end']-x['start']),-x['weight'],x['start'])):
-            span=set(range(h['start'],h['end']))
-            if span.isdisjoint(occupied):
-                selected.append(h)
-                occupied |= span
-    return sorted(selected,key=lambda x:(x['start'],x['component']))
+    # Slide 9: each lexicon entry is an independent binary feature.
+    # Never suppress a shorter term because a longer expression overlaps it:
+    # otherwise x_i depends on matching order and dictionary composition.
+    unique = {(h['row_id'],h['start'],h['end']):h for h in hits}
+    return sorted(unique.values(), key=lambda x:(x['start'],x['component'],x['row_id']))

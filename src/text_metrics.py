@@ -1,6 +1,6 @@
 """Transparent operational proxies for four text metrics (not historical calibration).
 
-All four scores are in [0, 1]. They are text features, NOT validated measures
+Formulas follow slide 7; lexical classification remains an editable heuristic.\nAll four scores are in [0, 1]. They are text features, NOT validated measures
 of student understanding. Formulae are documented below.
 """
 from __future__ import annotations
@@ -12,6 +12,8 @@ from .lexicon_matching import match_lexicon
 # Explicit, editable lexical markers. The interpretation score counts
 # explanatory constructions, not the correctness of an interpretation.
 ABSTRACT_ROOTS = frozenset('культура общество ценность норма смысл значение система процесс изменение развитие отношение связь идентичность коммуникация взаимодействие поведение представление сознание традиция память информация интерпретация символ правило практика функция'.split())
+CONCRETE_ROOTS = frozenset('музей книга картина здание памятник предмет вещь храм одежда дом инструмент телефон смартфон экспонат документ фотография театр школа библиотека фильм скульптура костюм артефакт'.split())
+STOPWORDS = frozenset('и в во на с со к ко по из от до за под над при для о об обо у а но или либо не ни же бы ли что как где когда который это этот эта эти тот та те он она они мы вы я ты его ее их себя есть быть был была были будет через между друг друга другим того том тем такой такая такие если также уже еще очень все'.split())
 EXPLANATORY_PATTERNS = (
     ('потому', 'что'), ('так', 'как'), ('для', 'того', 'чтобы'),
     ('это', 'означать'), ('это', 'позволять'), ('это', 'приводить'),
@@ -68,8 +70,11 @@ def calculate_text_metrics(text: str, rows: list[dict], index: dict | None = Non
     ls = lemmas(text)
     hits = match_lexicon(text, rows, index)
     covered = {p for h in hits for p in range(h['start'], h['end'])}
-    share = _bounded(len(covered)/len(ls)) if ls else 0.0
-    abstract = _bounded(sum(w in ABSTRACT_ROOTS for w in ls)/len(ls)) if ls else 0.0
+    content_positions = {i for i,w in enumerate(ls) if w not in STOPWORDS}
+    share = _bounded(len(covered & content_positions)/len(content_positions)) if content_positions else 0.0
+    abstract_count = sum(w in ABSTRACT_ROOTS for w in ls)
+    concrete_count = sum(w in CONCRETE_ROOTS for w in ls)
+    abstract = _bounded(abstract_count/(abstract_count+concrete_count)) if abstract_count+concrete_count else 0.0
     density, vertices, edges = _concept_graph_density(ls, hits, graph_window)
     sentence_ls = [lemmas(s) for s in sentences(text)]
     sentence_ls = [s for s in sentence_ls if s]
@@ -77,6 +82,8 @@ def calculate_text_metrics(text: str, rows: list[dict], index: dict | None = Non
     interpretation = _bounded(explained/len(sentence_ls)) if sentence_ls else 0.0
     return {'course_concept_share': share, 'abstraction_score': abstract,
             'relational_density': density, 'interpretation_score': interpretation,
-            'token_count': len(ls), 'covered_tokens': len(covered),
+            'token_count': len(ls), 'content_token_count': len(content_positions),
+            'covered_tokens': len(covered & content_positions),
+            'abstract_count': abstract_count, 'concrete_count': concrete_count,
             'graph_vertices': vertices, 'graph_edges': edges,
             'sentence_count': len(sentence_ls), 'explanatory_sentences': explained}

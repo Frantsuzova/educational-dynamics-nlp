@@ -23,12 +23,25 @@ def run():
         hits = match_lexicon(text, rows, idx)
         assert len(hits) == 4, hits
         scores, _ = score_components(text, rows, idx)
-        assert all(v >= 0 for v in scores.values())
+        assert all(0 <= v <= 1 for v in scores.values())
+        assert all(abs(v-1)<1e-9 for v in scores.values()), scores
         rel = score_components_relative(text, rows, idx)
         assert abs(sum(rel.values())-1) < 1e-5
         metrics = calculate_text_metrics(text, rows, idx)
         assert all(0 <= metrics[k] <= 1 for k in ('course_concept_share','abstraction_score','relational_density','interpretation_score'))
         assert metrics['graph_vertices'] == 4
+        # Abstractness uses abstract/(abstract+concrete), not abstract/all tokens.
+        assert metrics['abstract_count'] >= 1 and metrics['concrete_count'] >= 1
+        # Binary scoring: repeated mention does not increase a component.
+        repeated, _ = score_components(text + ' Музей музей музей.', rows, idx)
+        assert repeated == scores
+        # Nested matches must not suppress separate binary dictionary features.
+        nested = [
+          {'компонент':'Наследие и объекты','термин':'музей','вес_черновой':'1'},
+          {'компонент':'Наследие и объекты','термин':'музей культуры','вес_черновой':'1'},
+        ]
+        nested_scores,_ = score_components('Музей культуры', nested, build_index(nested))
+        assert nested_scores['score_objects'] == 1, nested_scores
         print('Smoke test passed: ngrams, matching, scoring, metrics.')
     finally:
         pp.lemma = original
